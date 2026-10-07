@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sampling & Quantization Demo</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c2025;--card:#fff;--muted:#6b7280;--accent:#2563eb;--line:#d9dde3;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14161a;--fg:#e7e9ee;--card:#1d2026;--muted:#9aa1ad;--accent:#6ea0ff;--line:#2e333b}}
+:root[data-theme="dark"]{--bg:#14161a;--fg:#e7e9ee;--card:#1d2026;--muted:#9aa1ad;--accent:#6ea0ff;--line:#2e333b}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.5}
+main{max-width:900px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.5rem;margin:0 0 4px}
+p.sub{margin:0 0 20px;color:var(--muted)}
+.imgs{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px}
+figcaption{font-size:.85rem;color:var(--muted);margin-top:6px;text-align:center}
+canvas{width:100%;height:auto;aspect-ratio:1;display:block;border-radius:6px;image-rendering:pixelated;background:#000}
+.ctl{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px}
+.row{display:flex;justify-content:space-between;font-weight:600;margin-bottom:4px}
+.row span:last-child{color:var(--accent);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.hint{font-size:.85rem;color:var(--muted);margin:2px 0 0}
+.up{margin-top:14px;font-size:.9rem;color:var(--muted)}
+@media (max-width:520px){.imgs{gap:8px}figure{padding:6px}}
+</style>
+</head>
+<body>
+<main>
+<h1>Sampling &amp; Quantization</h1>
+<p class="sub">See how spatial resolution and color depth change image quality.</p>
+
+<div class="imgs">
+  <figure><canvas id="orig" width="256" height="256"></canvas><figcaption>Original (256 × 256, 8 bits/channel)</figcaption></figure>
+  <figure><canvas id="out" width="256" height="256"></canvas><figcaption id="cap">Processed</figcaption></figure>
+</div>
+
+<div class="ctl">
+  <div class="row"><span>Sampling (spatial resolution)</span><span id="sv"></span></div>
+  <input id="s" type="range" min="2" max="256" value="48">
+  <p class="hint">Fewer samples per row/column → blocky image, lost fine detail (thin lines alias).</p>
+</div>
+<div class="ctl">
+  <div class="row"><span>Quantization (bits per channel)</span><span id="qv"></span></div>
+  <input id="q" type="range" min="1" max="8" value="3">
+  <p class="hint">Fewer intensity levels → banding and false contours in smooth gradients.</p>
+</div>
+
+<div class="up">Try your own photo: <input id="file" type="file" accept="image/*"></div>
+</main>
+<script>
+const N=256, orig=document.getElementById('orig'), out=document.getElementById('out');
+const oc=orig.getContext('2d'), xc=out.getContext('2d');
+const s=document.getElementById('s'), q=document.getElementById('q');
+
+function scene(){
+  let g=oc.createLinearGradient(0,0,0,N*.65);
+  g.addColorStop(0,'#1e3a8a');g.addColorStop(.6,'#f59e0b');g.addColorStop(1,'#fde68a');
+  oc.fillStyle=g;oc.fillRect(0,0,N,N);
+  g=oc.createRadialGradient(180,95,2,180,95,40);
+  g.addColorStop(0,'#fff');g.addColorStop(1,'rgba(255,255,255,0)');
+  oc.fillStyle=g;oc.fillRect(100,20,160,150);
+  oc.fillStyle='#4b5563';oc.beginPath();oc.moveTo(0,170);oc.lineTo(70,100);oc.lineTo(130,160);oc.lineTo(190,115);oc.lineTo(256,175);oc.lineTo(256,256);oc.lineTo(0,256);oc.fill();
+  g=oc.createLinearGradient(0,170,0,256);g.addColorStop(0,'#166534');g.addColorStop(1,'#052e16');
+  oc.fillStyle=g;oc.fillRect(0,185,N,71);
+  oc.strokeStyle='#fff';oc.lineWidth=1;
+  for(let i=0;i<14;i++){oc.beginPath();oc.moveTo(20+i*5,200);oc.lineTo(20+i*5,250);oc.stroke();}
+  oc.fillStyle='#dc2626';oc.fillRect(170,205,50,35);
+  oc.fillStyle='#fef2f2';oc.beginPath();oc.moveTo(165,205);oc.lineTo(195,182);oc.lineTo(225,205);oc.fill();
+  oc.fillStyle='#1c1917';oc.fillRect(190,222,12,18);
+  oc.fillStyle='#fff';oc.font='bold 14px sans-serif';oc.fillText('Aa 123',12,24);
+}
+
+function update(){
+  const n=+s.value, bits=+q.value, L=2**bits, step=255/(L-1);
+  const src=oc.getImageData(0,0,N,N).data;
+  const small=document.createElement('canvas');small.width=small.height=n;
+  const sc=small.getContext('2d'), im=sc.createImageData(n,n), d=im.data;
+  const cell=N/n;
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+    const sx=Math.min(N-1,Math.floor((x+.5)*cell)), sy=Math.min(N-1,Math.floor((y+.5)*cell));
+    const si=(sy*N+sx)*4, di=(y*n+x)*4;
+    for(let c=0;c<3;c++)d[di+c]=Math.round(Math.round(src[si+c]/step)*step);
+    d[di+3]=255;
+  }
+  sc.putImageData(im,0,0);
+  xc.imageSmoothingEnabled=false;
+  xc.clearRect(0,0,N,N);xc.drawImage(small,0,0,N,N);
+  document.getElementById('sv').textContent=n+' × '+n+' samples';
+  document.getElementById('qv').textContent=bits+' bit'+(bits>1?'s':'')+' ('+L+' levels)';
+  const colors=(L**3).toLocaleString();
+  document.getElementById('cap').textContent=n+' × '+n+' px, '+L+' levels/channel (≤ '+colors+' colors)';
+}
+
+document.getElementById('file').addEventListener('change',e=>{
+  const f=e.target.files[0];if(!f)return;
+  const img=new Image();
+  img.onload=()=>{
+    const m=Math.min(img.width,img.height);
+    oc.drawImage(img,(img.width-m)/2,(img.height-m)/2,m,m,0,0,N,N);
+    URL.revokeObjectURL(img.src);update();
+  };
+  img.src=URL.createObjectURL(f);
+});
+s.oninput=q.oninput=update;
+scene();update();
+</script>
+</body>
+</html>
